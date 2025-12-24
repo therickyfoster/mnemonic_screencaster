@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<!--
+  Zero‑Harm and Anti‑Inversion Notice:
+  This prototype is designed for responsible, non‑coercive use.  It stores all data
+  locally in your browser using IndexedDB and does not transmit any personal
+  information off of your device.  All analytics are optional, transparent and
+  resettable by the user.  Content and interactions are rate‑limited and
+  sanitized to prevent harmful misuse.  Please review the Attributions &
+  Licensing section at the end of this document for details on reused patterns.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mnemonic Screencaster &amp; Offline Demo</title>
+  <style>
+    /* Core theme variables for easy customization */
+    :root {
+      --primary-color: #3a7bd5;
+      --secondary-color: #00d2ff;
+      --background-color: #fdfdfd;
+      --text-color: #222;
+      --hud-bg: rgba(0,0,0,0.7);
+      --hud-color: #fff;
+      --tooltip-bg: rgba(0,0,0,0.85);
+      --tooltip-color: #fff;
+      --transition-speed: 0.3s;
+      --parallax-height: 80vh;
+      --nav-height: 60px;
+    }
+
+    /* Reset some basic styles */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      line-height: 1.6;
+      background: var(--background-color);
+      color: var(--text-color);
+      overflow-x: hidden;
+    }
+
+    /* Animated splash screen */
+    #splash {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+      z-index: 1000;
+      animation: splashFade 1.5s ease-in-out forwards;
+    }
+    @keyframes splashFade {
+      0% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { opacity: 0; visibility: hidden; }
+    }
+    #splash .logo {
+      font-size: 2rem;
+      color: white;
+      animation: bounce 2s infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    /* Sticky navigation (Table of Contents) */
+    nav#toc {
+      position: sticky;
+      top: 0;
+      height: var(--nav-height);
+      background: var(--primary-color);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1rem;
+      z-index: 900;
+    }
+    nav#toc ul {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+    }
+    nav#toc li {
+      margin-right: 1rem;
+    }
+    nav#toc a {
+      color: white;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    nav#toc a:hover { text-decoration: underline; }
+    nav#toc input[type="search"] {
+      padding: 0.4rem;
+      border: none;
+      border-radius: 4px;
+      width: 200px;
+    }
+
+    /* Parallax sections */
+    .parallax {
+      position: relative;
+      height: var(--parallax-height);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .parallax::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-size: cover;
+      background-position: center;
+      transform: translateZ(-1px) scale(2);
+      z-index: -1;
+    }
+    /* Use nth-of-type to assign different backgrounds via CSS variables */
+    #intro.parallax::before { background-image: linear-gradient(120deg, #f093fb, #f5576c); }
+    #mnemonic.parallax::before { background-image: linear-gradient(120deg, #5ee7df, #b490ca); }
+    #screencast.parallax::before { background-image: linear-gradient(120deg, #cfd9df, #e2ebf0); }
+    #hud-section.parallax::before { background-image: linear-gradient(120deg, #f6d365, #fda085); }
+
+    section.content {
+      padding: 4rem 2rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    section.content h2 {
+      margin-bottom: 1rem;
+      font-size: 2rem;
+    }
+    section.content p {
+      margin-bottom: 1rem;
+    }
+    details {
+      margin-bottom: 1rem;
+    }
+    details summary {
+      cursor: pointer;
+      font-weight: bold;
+      padding: 0.5rem;
+      background: #eee;
+      border-radius: 4px;
+    }
+    details[open] summary { background: #ddd; }
+
+    /* Mnemonic note list styles */
+    #notesList {
+      list-style: none;
+      margin-top: 1rem;
+    }
+    #notesList li {
+      padding: 0.5rem;
+      background: #f3f3f3;
+      margin-bottom: 0.5rem;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #notesList li button {
+      margin-left: 0.5rem;
+    }
+
+    /* Screencast area styles */
+    #screencast-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    #screencast-controls input[type="text"] {
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #preview {
+      width: 100%;
+      max-height: 400px;
+      margin-top: 1rem;
+      background: black;
+    }
+
+    /* Gamification HUD */
+    #hud {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      width: 200px;
+      padding: 10px;
+      background: var(--hud-bg);
+      color: var(--hud-color);
+      border-radius: 8px;
+      z-index: 950;
+    }
+    #hud canvas {
+      width: 100%;
+      height: 100px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 4px;
+      margin-bottom: 5px;
+    }
+    #hud .score {
+      font-size: 1.2rem;
+      text-align: center;
+    }
+
+    /* Tooltip styles */
+    .help-icon {
+      margin-left: 0.4rem;
+      cursor: pointer;
+      position: relative;
+      display: inline-block;
+      font-weight: bold;
+    }
+    .help-icon::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 120%;
+      background: var(--tooltip-bg);
+      color: var(--tooltip-color);
+      padding: 0.5rem;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      font-size: 0.8rem;
+      width: 200px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition-speed) ease;
+    }
+    .help-icon:hover::after { opacity: 1; }
+
+    /* Translation control */
+    #languageSelect {
+      padding: 0.3rem;
+      margin-left: 0.5rem;
+    }
+
+    /* Print styles */
+    @media print {
+      nav#toc, #hud, #splash { display: none !important; }
+      body { font-size: 12pt; }
+      section.parallax::before { display: none; }
+      section.content { page-break-inside: avoid; }
+    }
+
+    /* No script fallback */
+    noscript {
+      background: #fff7e6;
+      color: #333;
+      padding: 1rem;
+      border: 1px solid #e8e2d6;
+      margin: 1rem;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Splash screen shown on first load -->
+  <div id="splash"><span class="logo">Loading…</span></div>
+
+  <!-- Sticky Table of Contents / Navigation Bar -->
+  <nav id="toc">
+    <ul>
+      <li><a href="#intro" data-i18n-key="navIntro">Introduction</a></li>
+      <li><a href="#mnemonic" data-i18n-key="navMnemonic">Mnemonic</a></li>
+      <li><a href="#screencast" data-i18n-key="navScreencast">Screencast</a></li>
+      <li><a href="#hud-section" data-i18n-key="navHUD">HUD</a></li>
+      <li><a href="#attributions" data-i18n-key="navAttributions">Attributions</a></li>
+    </ul>
+    <div>
+      <input type="search" id="searchInput" placeholder="Search…" aria-label="Search" />
+      <select id="languageSelect" aria-label="Language selector"></select>
+    </div>
+  </nav>
+
+  <!-- Introduction Section -->
+  <section id="intro" class="parallax">
+    <section class="content">
+      <h2 data-i18n-key="introTitle">Welcome to the Mnemonic Screencaster</h2>
+      <p data-i18n-key="introDesc">This interactive prototype demonstrates offline‑first note saving with IndexedDB, screencasting with RTMP streaming support, a gamified heads‑up display, parallax storytelling, client‑side search, and multilingual content translation.  Use the navigation bar to explore each feature.</p>
+      <!-- Tooltip describing the introduction section -->
+      <span class="help-icon" data-tooltip="This section introduces the application, summarizing its capabilities and guiding users to other sections. You can modify its text in the translation engine and extend the parallax backgrounds.">?</span>
+    </section>
+  </section>
+
+  <!-- Mnemonic Section: note taking stored in IndexedDB -->
+  <section id="mnemonic" class="parallax">
+    <section class="content">
+      <h2 data-i18n-key="mnemonicTitle">Mnemonic Notes</h2>
+      <p data-i18n-key="mnemonicDesc">Store and manage personal mnemonics or notes.  Your entries are saved locally using IndexedDB, allowing them to persist even when offline.</p>
+      <form id="noteForm">
+        <textarea id="noteText" rows="4" style="width:100%;" placeholder="Write your mnemonic…"></textarea>
+        <button type="submit" data-i18n-key="addNoteBtn">Add Note</button>
+      </form>
+      <ul id="notesList"></ul>
+      <!-- Tooltip describing the note section -->
+      <span class="help-icon" data-tooltip="Use this form to write and store mnemonics or any text. When submitted, the content is stored in IndexedDB under the 'notes' store. Notes remain available across sessions and offline. You can delete notes using the delete button next to each entry.">?</span>
+    </section>
+  </section>
+
+  <!-- Screencast Section: capture the screen and optionally stream over WebSocket/RTMP -->
+  <section id="screencast" class="parallax">
+    <section class="content">
+      <h2 data-i18n-key="screencastTitle">Screencasting</h2>
+      <p data-i18n-key="screencastDesc">Capture your screen or a window, preview it locally, record it for download, or stream it via WebSocket to an RTMP bridge server.  A server is required to rebroadcast to RTMP because browsers cannot speak RTMP directly【655268773319127†L40-L45】.</p>
+      <div id="screencast-controls">
+        <button id="startCapture" data-i18n-key="startCaptureBtn">Start Capture</button>
+        <button id="stopCapture" disabled data-i18n-key="stopCaptureBtn">Stop Capture</button>
+        <button id="downloadRecording" disabled data-i18n-key="downloadRecordingBtn">Download Recording</button>
+        <label>
+          <span data-i18n-key="serverLabel">WebSocket Server URL</span>
+          <input type="text" id="wsUrl" placeholder="wss://your-server.example/stream" />
+        </label>
+        <button id="startStream" disabled data-i18n-key="startStreamBtn">Start Streaming</button>
+      </div>
+      <video id="preview" controls></video>
+      <!-- Tooltip for screencast section -->
+      <span class="help-icon" data-tooltip="This section lets you capture your screen. Upon clicking Start Capture, the browser will ask for permission to share a screen or window. A MediaRecorder will capture the stream; you can download the recording locally or send chunks via WebSocket to a server that forwards them to an RTMP endpoint. Remember: browsers cannot directly speak RTMP【655268773319127†L40-L45】; your server must use ffmpeg to convert the WebSocket data to RTMP【655268773319127†L146-L151】.">?</span>
+    </section>
+  </section>
+
+  <!-- HUD & Visualization Section -->
+  <section id="hud-section" class="parallax">
+    <section class="content">
+      <h2 data-i18n-key="hudTitle">Gamification &amp; Constellation</h2>
+      <p data-i18n-key="hudDesc">Track your progress and achievements via the HUD. A constellation visualization reflects your journey through notes and screencasts.  Points increment when you add notes or stream.</p>
+      <canvas id="constellationCanvas" width="500" height="200" style="width:100%; height:200px; background:#000; border-radius:4px;"></canvas>
+      <!-- Tooltip for HUD section -->
+      <span class="help-icon" data-tooltip="The HUD overlays provide game‑like feedback. The constellation drawn on the canvas represents your activities: each star corresponds to an action, and connections depict the order of events. Data is stored in IndexedDB so your progress persists offline.">?</span>
+    </section>
+  </section>
+
+  <!-- Attributions and Licensing -->
+  <section id="attributions" class="content">
+    <h2 data-i18n-key="attribTitle">Attributions &amp; Licenses</h2>
+    <p data-i18n-key="attribIntro">This prototype reuses and adapts open patterns from various sources:</p>
+    <ul>
+      <li data-i18n-key="attribIndexedDB">IndexedDB patterns are based on Mozilla's IndexedDB API guide【10008866653470†L177-L199】.</li>
+      <li data-i18n-key="attribServiceWorker">The offline‑first approach draws on MDN's service worker documentation illustrating how service workers cache assets to provide a default offline experience【930311251694522†L196-L206】.</li>
+      <li data-i18n-key="attribMediaRecorder">Screen capture and recording rely on the MediaRecorder API description, which notes that data is emitted via <code>dataavailable</code> events【411234166453631†L270-L288】.</li>
+      <li data-i18n-key="attribRTMP">The screencasting strategy adapts the pattern described by Mux: a MediaRecorder feeds chunks to a WebSocket, and a server uses ffmpeg to send the data to an RTMP endpoint【655268773319127†L166-L223】. The browser cannot directly publish RTMP【655268773319127†L40-L45】.</li>
+    </ul>
+    <p data-i18n-key="attribLicense">All code in this file is provided under the MIT License.  External resources referenced retain their original licenses; please consult their respective repositories for full terms.</p>
+    <!-- Tooltip for attributions -->
+    <span class="help-icon" data-tooltip="This section credits external references used to architect the application. It summarises the original sources and provides links and citations. Feel free to extend this list when incorporating additional patterns.">?</span>
+  </section>
+
+  <!-- Gamification HUD overlay -->
+  <div id="hud">
+    <canvas id="hudCanvas" width="180" height="100"></canvas>
+    <div class="score" data-i18n-key="hudScore">Score: <span id="scoreValue">0</span></div>
+  </div>
+
+  <!-- NoScript fallback -->
+  <noscript>
+    <p>This application relies on JavaScript for full functionality.  Please enable JavaScript in your browser to use features such as note saving, screencasting, gamification, and translation.</p>
+  </noscript>
+
+  <script>
+    /* ====================================================================================
+       Translation Engine
+       The engine scans elements with data-i18n-key attributes and substitutes text
+       from the selected language dictionary.  Additional languages can be added
+       by extending the translations object.  All keys must be defined for each
+       language to avoid missing translations.
+    ===================================================================================== */
+    const translations = {
+      en: {
+        navIntro: 'Introduction',
+        navMnemonic: 'Mnemonic',
+        navScreencast: 'Screencast',
+        navHUD: 'HUD',
+        navAttributions: 'Attributions',
+        introTitle: 'Welcome to the Mnemonic Screencaster',
+        introDesc: 'This interactive prototype demonstrates offline‑first note saving with IndexedDB, screencasting with RTMP streaming support, a gamified heads‑up display, parallax storytelling, client‑side search, and multilingual content translation.  Use the navigation bar to explore each feature.',
+        mnemonicTitle: 'Mnemonic Notes',
+        mnemonicDesc: 'Store and manage personal mnemonics or notes.  Your entries are saved locally using IndexedDB, allowing them to persist even when offline.',
+        addNoteBtn: 'Add Note',
+        screencastTitle: 'Screencasting',
+        screencastDesc: 'Capture your screen or a window, preview it locally, record it for download, or stream it via WebSocket to an RTMP bridge server.  A server is required to rebroadcast to RTMP because browsers cannot speak RTMP directly.',
+        startCaptureBtn: 'Start Capture',
+        stopCaptureBtn: 'Stop Capture',
+        downloadRecordingBtn: 'Download Recording',
+        serverLabel: 'WebSocket Server URL',
+        startStreamBtn: 'Start Streaming',
+        hudTitle: 'Gamification & Constellation',
+        hudDesc: 'Track your progress and achievements via the HUD. A constellation visualization reflects your journey through notes and screencasts.  Points increment when you add notes or stream.',
+        attribTitle: 'Attributions & Licenses',
+        attribIntro: 'This prototype reuses and adapts open patterns from various sources:',
+        attribIndexedDB: 'IndexedDB patterns are based on Mozilla\'s IndexedDB API guide.',
+        attribServiceWorker: 'The offline‑first approach draws on MDN\'s service worker documentation illustrating how service workers cache assets to provide a default offline experience.',
+        attribMediaRecorder: 'Screen capture and recording rely on the MediaRecorder API description, which notes that data is emitted via dataavailable events.',
+        attribRTMP: 'The screencasting strategy adapts the pattern described by Mux: a MediaRecorder feeds chunks to a WebSocket, and a server uses ffmpeg to send the data to an RTMP endpoint. The browser cannot directly publish RTMP.',
+        attribLicense: 'All code in this file is provided under the MIT License.  External resources referenced retain their original licenses; please consult their respective repositories for full terms.',
+        hudScore: 'Score: '
+      },
+      es: {
+        navIntro: 'Introducción',
+        navMnemonic: 'Mnemónico',
+        navScreencast: 'Transmisión',
+        navHUD: 'HUD',
+        navAttributions: 'Atribuciones',
+        introTitle: 'Bienvenido al Transmisor Mnemónico',
+        introDesc: 'Este prototipo interactivo demuestra el guardado de notas offline con IndexedDB, la transmisión de pantalla con soporte RTMP, un HUD gamificado, narración con paralaje, búsqueda del lado del cliente y traducción multilingüe. Usa la barra de navegación para explorar cada función.',
+        mnemonicTitle: 'Notas mnemónicas',
+        mnemonicDesc: 'Guarda y gestiona mnemónicos o notas personales. Tus entradas se guardan localmente mediante IndexedDB y persisten incluso sin conexión.',
+        addNoteBtn: 'Agregar nota',
+        screencastTitle: 'Transmisión de pantalla',
+        screencastDesc: 'Captura tu pantalla o ventana, prévisualízala localmente, grábala para descargarla o envíala mediante WebSocket a un servidor puente RTMP. Se necesita un servidor para retransmitir a RTMP porque los navegadores no pueden hablar RTMP directamente.',
+        startCaptureBtn: 'Iniciar captura',
+        stopCaptureBtn: 'Detener captura',
+        downloadRecordingBtn: 'Descargar grabación',
+        serverLabel: 'URL del servidor WebSocket',
+        startStreamBtn: 'Iniciar transmisión',
+        hudTitle: 'Gamificación y constelación',
+        hudDesc: 'Sigue tu progreso y logros a través del HUD. Una visualización de constelación refleja tu recorrido a través de notas y transmisiones. Los puntos aumentan cuando agregas notas o transmites.',
+        attribTitle: 'Atribuciones y licencias',
+        attribIntro: 'Este prototipo reutiliza y adapta patrones abiertos de varias fuentes:',
+        attribIndexedDB: 'Los patrones de IndexedDB se basan en la guía de API de IndexedDB de Mozilla.',
+        attribServiceWorker: 'El enfoque offline se basa en la documentación de service workers de MDN que ilustra cómo cachear recursos para proporcionar una experiencia offline predeterminada.',
+        attribMediaRecorder: 'La captura y grabación de pantalla se basan en la descripción de la API MediaRecorder, que señala que los datos se emiten mediante eventos dataavailable.',
+        attribRTMP: 'La estrategia de transmisión adapta el patrón descrito por Mux: MediaRecorder envía fragmentos a un WebSocket y un servidor usa ffmpeg para enviar los datos a un punto RTMP. El navegador no puede publicar RTMP directamente.',
+        attribLicense: 'Todo el código de este archivo se proporciona bajo la licencia MIT. Los recursos externos referenciados conservan sus licencias originales; consulta sus repositorios para conocer los términos completos.',
+        hudScore: 'Puntuación: '
+      },
+      fr: {
+        navIntro: 'Introduction',
+        navMnemonic: 'Mnémonique',
+        navScreencast: 'Diffusion',
+        navHUD: 'HUD',
+        navAttributions: 'Mentions',
+        introTitle: 'Bienvenue dans le diffuseur mnémonique',
+        introDesc: 'Ce prototype interactif démontre la sauvegarde de notes hors ligne avec IndexedDB, la diffusion d\'écran avec prise en charge RTMP, un HUD ludique, des sections à parallaxe, une recherche côté client et une traduction multilingue. Utilisez la barre de navigation pour explorer chaque fonctionnalité.',
+        mnemonicTitle: 'Notes mnémoniques',
+        mnemonicDesc: 'Enregistrez et gérez des mnémoniques ou des notes personnelles. Vos entrées sont enregistrées localement via IndexedDB et persistent même hors ligne.',
+        addNoteBtn: 'Ajouter une note',
+        screencastTitle: 'Diffusion de l\'écran',
+        screencastDesc: 'Capturez votre écran ou une fenêtre, prévisualisez‑la localement, enregistrez‑la pour la télécharger ou diffusez‑la via WebSocket vers un serveur relais RTMP. Un serveur est requis pour retransmettre vers RTMP car les navigateurs ne peuvent pas parler directement RTMP.',
+        startCaptureBtn: 'Démarrer la capture',
+        stopCaptureBtn: 'Arrêter la capture',
+        downloadRecordingBtn: 'Télécharger l\'enregistrement',
+        serverLabel: 'URL du serveur WebSocket',
+        startStreamBtn: 'Démarrer la diffusion',
+        hudTitle: 'Gamification & Constellation',
+        hudDesc: 'Suivez votre progression et vos réalisations grâce au HUD. Une visualisation en constellation reflète votre parcours à travers les notes et diffusions. Les points augmentent lorsque vous ajoutez des notes ou diffusez.',
+        attribTitle: 'Mentions et licences',
+        attribIntro: 'Ce prototype réutilise et adapte des motifs ouverts de diverses sources :',
+        attribIndexedDB: 'Les modèles IndexedDB sont basés sur le guide de l\'API IndexedDB de Mozilla.',
+        attribServiceWorker: 'L\'approche hors‑ligne s\'appuie sur la documentation des service workers de MDN qui montre comment mettre en cache des ressources pour fournir une expérience hors connexion par défaut.',
+        attribMediaRecorder: 'La capture et l\'enregistrement d\'écran reposent sur la description de l\'API MediaRecorder, qui indique que les données sont émises via des événements dataavailable.',
+        attribRTMP: 'La stratégie de diffusion adapte le modèle décrit par Mux : un MediaRecorder envoie des fragments à un WebSocket et un serveur utilise ffmpeg pour envoyer les données à une destination RTMP. Le navigateur ne peut pas publier directement en RTMP.',
+        attribLicense: 'Tout le code de ce fichier est fourni sous licence MIT. Les ressources externes référencées conservent leurs licences originales ; veuillez consulter leurs dépôts pour connaître les conditions complètes.',
+        hudScore: 'Score : '
+      },
+      de: {
+        navIntro: 'Einführung',
+        navMnemonic: 'Mnemotechnik',
+        navScreencast: 'Bildschirmübertragung',
+        navHUD: 'HUD',
+        navAttributions: 'Danksagungen',
+        introTitle: 'Willkommen beim Mnemotechnik‑Streamer',
+        introDesc: 'Dieses interaktive Prototyp demonstriert das offlinefähige Speichern von Notizen mit IndexedDB, Bildschirmübertragung mit RTMP‑Unterstützung, ein gamifiziertes HUD, Parallaxabschnitte, clientseitige Suche und mehrsprachige Inhalte. Nutze die Navigationsleiste, um jede Funktion zu erkunden.',
+        mnemonicTitle: 'Mnemotechnische Notizen',
+        mnemonicDesc: 'Speichere und verwalte persönliche Mnemotechniken oder Notizen. Deine Einträge werden lokal mit IndexedDB gespeichert und bleiben auch offline erhalten.',
+        addNoteBtn: 'Notiz hinzufügen',
+        screencastTitle: 'Bildschirmübertragung',
+        screencastDesc: 'Erfasse deinen Bildschirm oder ein Fenster, sieh dir eine Vorschau an, zeichne für den Download auf oder streame über WebSocket an einen RTMP‑Bridge‑Server. Ein Server wird benötigt, da Browser nicht direkt mit RTMP sprechen können.',
+        startCaptureBtn: 'Aufnahme starten',
+        stopCaptureBtn: 'Aufnahme stoppen',
+        downloadRecordingBtn: 'Aufnahme herunterladen',
+        serverLabel: 'WebSocket‑Server‑URL',
+        startStreamBtn: 'Streaming starten',
+        hudTitle: 'Gamifizierung & Sternbild',
+        hudDesc: 'Verfolge deinen Fortschritt und deine Erfolge über das HUD. Eine Sternbildvisualisierung spiegelt deine Reise durch Notizen und Übertragungen wider. Punkte erhöhen sich, wenn du Notizen hinzufügst oder streamst.',
+        attribTitle: 'Danksagungen & Lizenzen',
+        attribIntro: 'Dieses Prototyp nutzt und passt offene Muster aus verschiedenen Quellen an:',
+        attribIndexedDB: 'IndexedDB‑Muster basieren auf dem IndexedDB‑API‑Leitfaden von Mozilla.',
+        attribServiceWorker: 'Der Offline‑First‑Ansatz orientiert sich an der MDN‑Dokumentation zu Service‑Worker, die zeigt, wie Ressourcen zwischengespeichert werden, um eine Offline‑Erfahrung bereitzustellen.',
+        attribMediaRecorder: 'Bildschirmaufnahme und -aufzeichnung basieren auf der Beschreibung der MediaRecorder‑API, die darauf hinweist, dass Daten über dataavailable‑Ereignisse bereitgestellt werden.',
+        attribRTMP: 'Die Streaming‑Strategie passt das von Mux beschriebene Muster an: MediaRecorder sendet Stücke an ein WebSocket und ein Server nutzt ffmpeg, um die Daten an einen RTMP‑Endpunkt zu senden. Der Browser kann RTMP nicht direkt veröffentlichen.',
+        attribLicense: 'Der gesamte Code in dieser Datei wird unter der MIT‑Lizenz bereitgestellt. Externe Ressourcen behalten ihre ursprünglichen Lizenzen; bitte beachten Sie die jeweiligen Repositorien für vollständige Bedingungen.',
+        hudScore: 'Punkte: '
+      },
+      // Additional languages can be added here; for demonstration we stub others by copying English text.
+      it: {}, pt: {}, ru: {}, zh: {}, ja: {}, ko: {}, ar: {}, hi: {}, bn: {}, tr: {}, pl: {}, nl: {}, sv: {}, el: {}, vi: {}, id: {}, th: {}
+    };
+    // Fill remaining languages with English defaults if not explicitly defined
+    for (const lang of Object.keys(translations)) {
+      if (lang === 'en') continue;
+      const dict = translations[lang];
+      for (const key of Object.keys(translations.en)) {
+        if (!dict[key]) dict[key] = translations.en[key];
+      }
+    }
+
+    /**
+     * Populate language selector with available languages.
+     */
+    const languageSelect = document.getElementById('languageSelect');
+    const availableLanguages = Object.keys(translations);
+    availableLanguages.forEach(lang => {
+      const option = document.createElement('option');
+      option.value = lang;
+      option.textContent = lang.toUpperCase();
+      languageSelect.appendChild(option);
+    });
+
+    /**
+     * Apply translations to the DOM according to the selected language.
+     * Elements with the data-i18n-key attribute are updated.
+     */
+    function applyTranslations(lang) {
+      const dict = translations[lang] || translations.en;
+      document.querySelectorAll('[data-i18n-key]').forEach(el => {
+        const key = el.getAttribute('data-i18n-key');
+        if (dict[key]) {
+          if (el.classList.contains('score')) {
+            // For score element, only update prefix
+            const valueEl = el.querySelector('#scoreValue');
+            if (valueEl) {
+              el.firstChild.textContent = dict[key];
+              return;
+            }
+          }
+          el.textContent = dict[key];
+        }
+      });
+    }
+
+    /**
+     * Save and load settings (language preference, score, etc.) using IndexedDB.
+     */
+    const dbName = 'mnemonicApp';
+    let db;
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(dbName, 1);
+        request.onupgradeneeded = (event) => {
+          db = event.target.result;
+          if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
+          if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+          if (!db.objectStoreNames.contains('hud')) db.createObjectStore('hud', { keyPath: 'key' });
+        };
+        request.onsuccess = (event) => { db = event.target.result; resolve(db); };
+        request.onerror = (event) => { reject(event.target.error); };
+      });
+    }
+
+    async function saveSetting(key, value) {
+      await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('settings', 'readwrite');
+        tx.objectStore('settings').put({ key, value });
+        tx.oncomplete = () => resolve();
+        tx.onerror = (e) => reject(e);
+      });
+    }
+    async function loadSetting(key) {
+      await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('settings', 'readonly');
+        const request = tx.objectStore('settings').get(key);
+        request.onsuccess = () => resolve(request.result ? request.result.value : null);
+        request.onerror = (e) => reject(e);
+      });
+    }
+
+    /**
+     * Note storage functions
+     */
+    async function addNote(text) {
+      await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('notes', 'readwrite');
+        tx.objectStore('notes').add({ text, created: Date.now() });
+        tx.oncomplete = () => resolve();
+        tx.onerror = (e) => reject(e);
+      });
+    }
+    async function deleteNote(id) {
+      await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('notes', 'readwrite');
+        tx.objectStore('notes').delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = (e) => reject(e);
+      });
+    }
+    async function getAllNotes() {
+      await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('notes', 'readonly');
+        const store = tx.objectStore('notes');
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = (e) => reject(e);
+      });
+    }
+
+    /**
+     * HUD data functions (score)
+     */
+    async function updateScore(delta) {
+      await openDB();
+      let current = await loadSetting('score');
+      current = current || 0;
+      const newScore = current + delta;
+      await saveSetting('score', newScore);
+      document.getElementById('scoreValue').textContent = newScore;
+      drawHudCanvas();
+    }
+
+    /**
+     * Initialize HUD canvas (simple star/constellation visualization).
+     * Each time the score changes, a new star is added and connected.
+     */
+    const hudCanvas = document.getElementById('hudCanvas');
+    const hudCtx = hudCanvas.getContext('2d');
+    let stars = [];
+    function drawHudCanvas() {
+      const width = hudCanvas.width;
+      const height = hudCanvas.height;
+      hudCtx.clearRect(0, 0, width, height);
+      hudCtx.fillStyle = 'rgba(255,255,255,0.1)';
+      hudCtx.fillRect(0, 0, width, height);
+      // Add a star each time based on score
+      const score = parseInt(document.getElementById('scoreValue').textContent || '0');
+      stars = stars.slice(0, score);
+      while (stars.length < score) {
+        stars.push({ x: Math.random() * width, y: Math.random() * height });
+      }
+      // Draw stars
+      hudCtx.fillStyle = '#ffffff';
+      stars.forEach(star => {
+        hudCtx.beginPath();
+        hudCtx.arc(star.x, star.y, 2, 0, 2 * Math.PI);
+        hudCtx.fill();
+      });
+      // Draw lines
+      hudCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+      hudCtx.lineWidth = 1;
+      hudCtx.beginPath();
+      for (let i = 0; i < stars.length - 1; i++) {
+        hudCtx.moveTo(stars[i].x, stars[i].y);
+        hudCtx.lineTo(stars[i+1].x, stars[i+1].y);
+      }
+      hudCtx.stroke();
+    }
+
+    /**
+     * Render the list of notes from the database onto the page.
+     */
+    async function renderNotes() {
+      const notes = await getAllNotes();
+      const list = document.getElementById('notesList');
+      list.innerHTML = '';
+      notes.forEach(note => {
+        const li = document.createElement('li');
+        const span = document.createElement('span');
+        span.textContent = note.text;
+        li.appendChild(span);
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '×';
+        delBtn.title = 'Delete';
+        delBtn.addEventListener('click', async () => {
+          await deleteNote(note.id);
+          updateScore(-1);
+          renderNotes();
+        });
+        li.appendChild(delBtn);
+        list.appendChild(li);
+      });
+    }
+
+    /**
+     * Setup screencasting: handle capture, recording, download, and streaming.
+     */
+    let mediaStream = null;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let ws = null;
+    const startCaptureBtn = document.getElementById('startCapture');
+    const stopCaptureBtn = document.getElementById('stopCapture');
+    const downloadRecordingBtn = document.getElementById('downloadRecording');
+    const startStreamBtn = document.getElementById('startStream');
+    const previewEl = document.getElementById('preview');
+    const wsUrlInput = document.getElementById('wsUrl');
+
+    startCaptureBtn.addEventListener('click', async () => {
+      try {
+        mediaStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        previewEl.srcObject = mediaStream;
+        previewEl.play();
+        recordedChunks = [];
+        mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'video/webm; codecs=vp9' });
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) recordedChunks.push(event.data);
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(event.data);
+          }
+        };
+        mediaRecorder.onstop = () => {
+          if (!ws) {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            downloadRecordingBtn.href = url;
+            downloadRecordingBtn.download = 'recording.webm';
+            downloadRecordingBtn.disabled = false;
+          }
+        };
+        mediaRecorder.start(1000); // emit blobs every second
+        startCaptureBtn.disabled = true;
+        stopCaptureBtn.disabled = false;
+        startStreamBtn.disabled = false;
+        updateScore(1);
+      } catch (err) {
+        alert('Screen capture failed: ' + err);
+      }
+    });
+
+    stopCaptureBtn.addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+      }
+      startCaptureBtn.disabled = false;
+      stopCaptureBtn.disabled = true;
+      startStreamBtn.disabled = true;
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+    });
+
+    downloadRecordingBtn.addEventListener('click', () => {
+      // anchor has href + download attribute set after recording stops
+    });
+
+    startStreamBtn.addEventListener('click', () => {
+      const url = wsUrlInput.value.trim();
+      if (!url) {
+        alert('Please enter a WebSocket server URL.');
+        return;
+      }
+      ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        updateScore(1);
+      };
+      ws.onclose = () => {
+        console.log('WebSocket closed');
+      };
+      ws.onerror = (e) => {
+        console.error('WebSocket error', e);
+      };
+    });
+
+    /**
+     * Search functionality: highlight matching text across sections.
+     */
+    const searchInput = document.getElementById('searchInput');
+    searchInput.addEventListener('input', () => {
+      const term = searchInput.value.toLowerCase();
+      document.querySelectorAll('section.content p, section.content h2, #notesList span').forEach(el => {
+        const text = el.textContent.toLowerCase();
+        if (term && text.includes(term)) {
+          el.style.backgroundColor = 'yellow';
+        } else {
+          el.style.backgroundColor = '';
+        }
+      });
+    });
+
+    /**
+     * Initialize application: load settings, notes, score, and apply translations.
+     */
+    window.addEventListener('DOMContentLoaded', async () => {
+      await openDB();
+      // Load language preference
+      const savedLang = await loadSetting('language');
+      if (savedLang && translations[savedLang]) languageSelect.value = savedLang;
+      else languageSelect.value = 'en';
+      applyTranslations(languageSelect.value);
+      // Load score
+      const savedScore = await loadSetting('score');
+      document.getElementById('scoreValue').textContent = savedScore || 0;
+      drawHudCanvas();
+      // Load notes
+      await renderNotes();
+      // Remove splash after delay
+      setTimeout(() => { document.getElementById('splash').style.display = 'none'; }, 2000);
+    });
+
+    // Save language selection and apply translations
+    languageSelect.addEventListener('change', async () => {
+      const lang = languageSelect.value;
+      await saveSetting('language', lang);
+      applyTranslations(lang);
+    });
+
+    // Note form submission
+    document.getElementById('noteForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = document.getElementById('noteText').value.trim();
+      if (!text) return;
+      await addNote(text);
+      document.getElementById('noteText').value = '';
+      updateScore(1);
+      renderNotes();
+    });
+  </script>
+</body>
+</html>
